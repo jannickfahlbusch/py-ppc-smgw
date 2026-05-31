@@ -1,0 +1,181 @@
+"""Parsing functions for PPC SMGW HTML and XML responses."""
+
+import xml.etree.ElementTree as ET
+from datetime import datetime
+from typing import cast
+
+from asn1crypto import cms
+from bs4 import BeautifulSoup, Tag
+
+from .types import FirmwareVersion, Meter, MeterEntry, OBISCode, Reading
+
+_CMS_XML_END_TAGS = (
+    b"</ns1:object>",
+    b"</khw:container>",
+    b"</taf01:object>",
+    b"</taf07:object>",
+)
+
+
+def extract_xml_from_cms(content: bytes) -> bytes:
+    """
+    Extract embedded XML from a CMS/PKCS#7 SignedData envelope.
+
+    Tries proper ASN.1 parsing first (works with real SMGW responses).
+    Falls back to marker-based extraction (works with fake server / incomplete CMS).
+    """
+    try:
+        content_info = cms.ContentInfo.load(content)
+        signed_data = content_info["content"]
+        return cast("bytes", signed_data["encap_content_info"]["content"].native)
+    except Exception:
+        pass
+
+    xml_start = content.find(b"<?xml")
+    if xml_start == -1:
+        raise ValueError("No XML found in export response")
+
+    for end_tag in _CMS_XML_END_TAGS:
+        end_pos = content.rfind(end_tag)
+        if end_pos != -1:
+            return content[xml_start : end_pos + len(end_tag)]
+
+    return content[xml_start:]
+
+
+def parse_meters(html: bytes) -> list[Meter]:
+    """Parse meter list from meterform HTML response."""
+    soup = BeautifulSoup(html, "html.parser")
+    select = soup.find("select", id="meterform_select_meter")
+    if not isinstance(select, Tag):
+        return []
+
+    meters: list[Meter] = []
+    for option in select.find_all("option"):
+        if not isinstance(option, Tag):
+            continue
+        value = option.get("value", "")
+        if not isinstance(value, str):
+            continue
+        meters.append(
+            Meter(
+                mid=value,
+                name=option.get_text().strip(),
+            )
+        )
+
+    return meters
+
+
+def parse_meter_reading(html: bytes) -> dict[OBISCode, Reading]:
+    """Parse meter readings from showMeterProfile HTML response."""
+    soup = BeautifulSoup(html, "html.parser")
+
+    table_data = soup.find("table", id="metervalue")
+    if not isinstance(table_data, Tag):
+        return {}
+
+    rows = table_data.find_all("tr")
+    timestamp: datetime | None = None
+    readings: dict[OBISCode, Reading] = {}
+
+    for row in rows:
+        if not isinstance(row, Tag):
+            continue
+
+        obis_cell = row.find(id="table_metervalues_col_obis")
+        if not isinstance(obis_cell, Tag) or obis_cell.string is None:
+            continue
+
+        row_timestamp = row.find(id="table_metervalues_col_timestamp")
+        if isinstance(row_timestamp, Tag) and row_timestamp.string is not None:
+            timestamp = datetime.strptime(row_timestamp.string, "%Y-%m-%d %H:%M:%S")
+
+        if timestamp is None:
+            continue
+
+        value_cell = row.find(id="table_metervalues_col_wert")
+        if not isinstance(value_cell, Tag) or value_cell.string is None:
+            continue
+
+        obis_code = obis_cell.string
+        readings[obis_code] = Reading(
+            value=value_cell.string,
+            timestamp=timestamp,
+            obis=obis_code,
+        )
+
+    return readings
+
+
+def parse_firmware_versions(html: bytes) -> list[FirmwareVersion]:
+    """Parse firmware versions from swversions HTML response."""
+    soup = BeautifulSoup(html, "html.parser")
+    rows = soup.find_all("tr")
+    versions: list[FirmwareVersion] = []
+    for row in rows[1:]:
+        cells = row.find_all("td")
+        if len(cells) == 3:
+            versions.append(
+                FirmwareVersion(
+                    component=cells[0].get_text().strip(),
+                    version=cells[1].get_text().strip(),
+                    checksum=cells[2].get_text().strip(),
+                )
+            )
+    return versions
+
+
+def parse_export_meter_values(content: bytes) -> list[MeterEntry]:
+    """Parse meter values from exportMeterValues CMS response."""
+    xml_content = extract_xml_from_cms(content)
+
+    ns = {
+        "ns1": "urn:k461-dke-de:profile_generic-1",
+        "ns2": "urn:k461-dke-de:extension-1",
+    }
+
+    root = ET.fromstring(xml_content)
+    entries: list[MeterEntry] = []
+
+    capture_obj = root.find(".//ns1:capture_object/ns2:logical_name", ns)
+    obis_logical = capture_obj.text if capture_obj is not None and capture_obj.text else ""
+    obis = logical_name_to_obis(obis_logical)
+
+    for entry in root.findall(".//ns1:entry_gateway_signed", ns):
+        value_el = entry.find("ns2:value/ns2:long64", ns)
+        scaler_el = entry.find("ns2:scaler", ns)
+        unit_el = entry.find("ns2:unit", ns)
+        status_el = entry.find("ns2:status/ns2:unsigned", ns)
+        time_el = entry.find("ns2:capture_time", ns)
+        sig_el = entry.find("ns2:smgw_signature", ns)
+
+        if value_el is None or time_el is None:
+            continue
+
+        entries.append(
+            MeterEntry(
+                value=float(value_el.text or "0"),
+                scaler=int(scaler_el.text or "0") if scaler_el is not None else 0,
+                unit=int(unit_el.text or "0") if unit_el is not None else 0,
+                status=int(status_el.text or "0") if status_el is not None else 0,
+                capture_time=datetime.fromisoformat(time_el.text) if time_el.text else datetime.now(),
+                obis=obis,
+                signature=sig_el.text or "" if sig_el is not None else "",
+            )
+        )
+
+    return entries
+
+
+def logical_name_to_obis(logical_name: str) -> OBISCode:
+    """Convert logical name like '0100020800ff.meter.sm' to OBIS '1-0:2.8.0'."""
+    hex_part = logical_name.split(".", maxsplit=1)[0] if "." in logical_name else logical_name
+    if len(hex_part) < 12:
+        return logical_name
+    a = int(hex_part[0:2], 16)
+    b = int(hex_part[2:4], 16)
+    c = int(hex_part[4:6], 16)
+    d = int(hex_part[6:8], 16)
+    e = int(hex_part[8:10], 16)
+    return f"{a}-{b}:{c}.{d}.{e}"

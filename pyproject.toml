@@ -1,0 +1,167 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "py-ppc-smgw"
+dynamic = ["version"]
+description = "Python API for PPC Smart Meter Gateways (SMGW)"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.13"
+keywords = ["smgw", "smart-meter", "ppc", "energy", "metering", "hems"]
+authors = [
+    { name = "Jannick Fahlbusch", email = "git@jf-projects.de" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Home Automation",
+    "Topic :: System :: Hardware",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Framework :: AsyncIO",
+    "Typing :: Typed",
+]
+dependencies = [
+    "httpx>=0.28,<1",
+    "beautifulsoup4>=4.12,<5",
+    "cryptography>=48.0.0",
+    "asn1crypto>=1.5.1",
+]
+
+[project.urls]
+Homepage   = "https://github.com/jannickfahlbusch/py-ppc-smgw"
+Repository = "https://github.com/jannickfahlbusch/py-ppc-smgw"
+Issues     = "https://github.com/jannickfahlbusch/py-ppc-smgw/issues"
+Changelog  = "https://github.com/jannickfahlbusch/py-ppc-smgw/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "py_ppc_smgw/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["py_ppc_smgw"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["test.py", "/.gitea", "/.github", "/uv.lock"]
+
+[tool.mypy]
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "asn1crypto.*"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.1.0",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+    "pytest-httpx>=0.36.2",
+    "ruff>=0.15.12",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+extend-exclude = ["py_ppc_smgw/_version.py"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "ANN401",  # Dynamically typed expressions (typing.Any) are disallowed
+    "D203",    # no-blank-line-before-class (incompatible with formatter)
+    "D212",    # multi-line-summary-first-line (incompatible with formatter)
+    "COM812",  # incompatible with formatter
+    "ISC001",  # incompatible with formatter
+
+    # Docstring noise — small lib with clear naming
+    "D100",    # Missing docstring in public module
+    "D101",    # Missing docstring in public class
+    "D102",    # Missing docstring in public method
+    "D105",    # Missing docstring in magic method
+    "D107",    # Missing docstring in __init__
+    "D400",    # First line should end with a period
+    "D415",    # First line should end with period/question/exclamation
+
+    # Import style — TYPE_CHECKING blocks add complexity for no benefit here
+    "TC001",   # Move app import into TYPE_CHECKING block
+    "TC003",   # Move stdlib import into TYPE_CHECKING block
+
+    # Annotation pedantry
+    "ANN002",  # Missing type annotation for *args
+    "ANN204",  # Missing return type annotation for special method
+
+    # False positives on protocol constants
+    "PLR2004", # Magic value used in comparison
+
+    # XML from trusted local SMGW device, not untrusted input
+    "S314",    # Using xml to parse untrusted data
+
+    # TODO comments are fine — they track known tech debt
+    "TD002",   # Missing author in TODO
+    "TD003",   # Missing issue link for TODO
+    "FIX002",  # Line contains TODO
+
+    # f-string logging is fine in a small lib (no hot path)
+    "G004",    # Logging statement uses f-string
+
+    # Exception message style — overly strict for a small lib
+    "EM101",   # Exception must not use string literal
+    "EM102",   # Exception must not use f-string literal
+    "TRY003",  # Avoid specifying long messages outside exception class
+    "TRY400",  # Use logging.exception instead of logging.error
+
+    # Intentional fallback pattern (ASN1 → marker-based extraction)
+    "BLE001",  # Do not catch blind exception
+    "S110",    # try-except-pass detected
+
+    # List comprehension not always more readable
+    "PERF401", # Use a list comprehension to create a transformed list
+
+    # Gateway returns local time without timezone info — naive datetimes are intentional
+    "DTZ003",  # Use of datetime.strptime without %z
+    "DTZ005",  # datetime.now() without tz argument
+    "DTZ007",  # Use of datetime.strptime without %z (variant)
+
+    # fromisoformat handles Z natively on 3.11+, but gateway may return without Z
+    "FURB162", # Unnecessary timezone replacement with zero offset
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "S101",    # Use of assert detected — expected in tests
+    "ANN",     # Missing type annotations — noisy in tests
+    "D",       # Missing docstrings — noisy in tests
+    "SLF001",  # Private member access — tests verify internal state
+    "INP001",  # Implicit namespace package — tests dir intentionally has no __init__
+    "PT012",   # pytest.raises with multiple statements — sometimes unavoidable
+    "TC002",   # Move third-party import into TYPE_CHECKING — pointless for test deps
+    "DTZ001",  # datetime() without tzinfo — gateway returns naive local time, test data must match
+]
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
+
+[tool.ruff.lint.pyupgrade]
+keep-runtime-typing = true
+
+[tool.ruff.lint.mccabe]
+max-complexity = 25

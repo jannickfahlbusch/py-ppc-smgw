@@ -1,0 +1,142 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./.gitea/actions/setup-python-uv
+
+      - name: Check formatting
+        run: uv run ruff format --check py_ppc_smgw/ tests/
+
+      - name: Check linting
+        run: uv run ruff check py_ppc_smgw/ tests/
+
+      - name: Type check
+        run: uv run mypy py_ppc_smgw/ tests/
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./.gitea/actions/setup-python-uv
+
+      - name: Run tests
+        run: uv run pytest -v
+
+  build:
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # required for hatch-vcs to read tags
+
+      - uses: ./.gitea/actions/setup-python-uv
+        with:
+          sync: "false"
+
+      - name: Verify tag matches PEP 440 and extract version
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "Building for tag: ${TAG}"
+          [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(rc|alpha|beta)[0-9]+)?$ ]] \
+            || { echo "Bad tag: ${TAG}"; exit 1; }
+          # Strip leading "v" and convert "0.1.0-rc1" → "0.1.0rc1" (PEP 440)
+          VERSION="${TAG#v}"
+          VERSION="${VERSION/-rc/rc}"
+          VERSION="${VERSION/-alpha/a}"
+          VERSION="${VERSION/-beta/b}"
+          echo "Resolved package version: ${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build sdist + wheel
+        env:
+          # Force the version from the pushed tag — hatch-vcs picks the wrong tag
+          # when multiple tags point at the same commit (CI fetches them in
+          # one batch, the alphabetic tiebreaker wins instead of the latest one).
+          SETUPTOOLS_SCM_PRETEND_VERSION: ${{ steps.version.outputs.version }}
+        run: uv build
+
+      - name: Validate metadata
+        run: uvx twine check --strict dist/*
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: dist
+          path: dist/
+
+  publish-testpypi:
+    needs: [build]
+    if: contains(github.ref, '-rc') || contains(github.ref, '-alpha') || contains(github.ref, '-beta')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: dist
+          path: dist/
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Publish to TestPyPI
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        run: uv publish --publish-url https://test.pypi.org/legacy/ dist/*
+
+  publish-pypi:
+    needs: [build]
+    if: ${{ !contains(github.ref, '-') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: dist
+          path: dist/
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Publish to PyPI
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: uv publish dist/*
+
+  verify:
+    needs: [publish-pypi]
+    if: ${{ !contains(github.ref, '-') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            pyproject.toml
+            .gitea/actions/setup-python-uv
+          sparse-checkout-cone-mode: false
+
+      - uses: ./.gitea/actions/setup-python-uv
+        with:
+          sync: "false"
+
+      - name: Wait for CDN propagation
+        run: sleep 60
+
+      - name: Install from PyPI and import
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          uv pip install --system "py-ppc-smgw==${VERSION}"
+          uv run python -c "import py_ppc_smgw; print(py_ppc_smgw.__version__)"

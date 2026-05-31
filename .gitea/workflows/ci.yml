@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./.gitea/actions/setup-python-uv
+
+      - name: Check formatting
+        run: uv run ruff format --check py_ppc_smgw/ tests/
+
+      - name: Check linting
+        run: uv run ruff check py_ppc_smgw/ tests/
+
+      - name: Type check
+        run: uv run mypy py_ppc_smgw/ tests/
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./.gitea/actions/setup-python-uv
+
+      - name: Run tests
+        run: uv run pytest -v

@@ -1,0 +1,50 @@
+name: Setup Python and uv
+description: |
+  Install uv, extract the minimum Python version from pyproject.toml's
+  `requires-python`, install that Python, and run `uv sync`.
+  Outputs the resolved Python version for downstream steps that need it.
+
+inputs:
+  sync:
+    description: Whether to run `uv sync` after installing Python.
+    required: false
+    default: "true"
+
+outputs:
+  python-version:
+    description: Minimum Python version resolved from pyproject.toml
+    value: ${{ steps.extract.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+
+    - name: Extract minimum Python version from pyproject.toml
+      id: extract
+      shell: bash
+      run: |
+        VERSION=$(python3 -c '
+        import re, tomllib
+        with open("pyproject.toml", "rb") as f:
+            cfg = tomllib.load(f)
+        spec = cfg["project"]["requires-python"]
+        m = re.search(r"(\d+\.\d+)", spec)
+        print(m.group(1) if m else "")
+        ')
+        if [ -z "$VERSION" ]; then
+          echo "Failed to extract Python version from pyproject.toml" >&2
+          exit 1
+        fi
+        echo "Resolved Python version: ${VERSION}"
+        echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+    - name: Install Python ${{ steps.extract.outputs.version }}
+      shell: bash
+      run: uv python install ${{ steps.extract.outputs.version }}
+
+    - name: Install dependencies
+      if: inputs.sync == 'true'
+      shell: bash
+      run: uv sync
