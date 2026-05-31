@@ -135,11 +135,18 @@ jobs:
         with:
           sync: "false"
 
-      - name: Wait for CDN propagation
-        run: sleep 60
-
       - name: Install from PyPI and import
         run: |
+          VERSION="${{ needs.build.outputs.version }}"
           uv venv --python ${{ steps.setup.outputs.python-version }}
-          uv pip install "py-ppc-smgw==${{ needs.build.outputs.version }}"
-          uv run --no-project python -c "import py_ppc_smgw; print(py_ppc_smgw.__version__)"
+          for i in $(seq 1 30); do
+            if uv pip install "py-ppc-smgw==${VERSION}"; then
+              echo "Installed py-ppc-smgw==${VERSION} after ${i} attempts"
+              uv run --no-project python -c "import py_ppc_smgw; print(py_ppc_smgw.__version__)"
+              exit 0
+            fi
+            echo "Attempt ${i}: py-ppc-smgw==${VERSION} not yet installable, waiting 10s..."
+            sleep 10
+          done
+          echo "py-ppc-smgw==${VERSION} did not become installable within 5 minutes" >&2
+          exit 1
