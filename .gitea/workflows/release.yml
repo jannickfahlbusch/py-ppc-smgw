@@ -39,6 +39,8 @@ jobs:
   build:
     needs: [lint, test]
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -117,7 +119,7 @@ jobs:
         run: uv publish dist/*
 
   verify:
-    needs: [publish-pypi]
+    needs: [build, publish-pypi]
     if: ${{ !contains(github.ref, '-') }}
     runs-on: ubuntu-latest
     steps:
@@ -129,6 +131,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - uses: ./.gitea/actions/setup-python-uv
+        id: setup
         with:
           sync: "false"
 
@@ -137,6 +140,6 @@ jobs:
 
       - name: Install from PyPI and import
         run: |
-          VERSION="${GITHUB_REF#refs/tags/v}"
-          uv pip install --system "py-ppc-smgw==${VERSION}"
-          uv run python -c "import py_ppc_smgw; print(py_ppc_smgw.__version__)"
+          uv venv --python ${{ steps.setup.outputs.python-version }}
+          uv pip install "py-ppc-smgw==${{ needs.build.outputs.version }}"
+          uv run --no-project python -c "import py_ppc_smgw; print(py_ppc_smgw.__version__)"
