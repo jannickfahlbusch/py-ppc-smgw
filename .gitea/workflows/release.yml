@@ -145,8 +145,8 @@ jobs:
               uv run --no-project python -c "import py_ppc_smgw; print(py_ppc_smgw.__version__)"
               exit 0
             fi
-            echo "Attempt ${i}: py-ppc-smgw==${VERSION} not yet installable, waiting 10s..."
-            sleep 10
+            echo "Attempt ${i}: py-ppc-smgw==${VERSION} not yet installable, waiting 30s..."
+            sleep 30
           done
-          echo "py-ppc-smgw==${VERSION} did not become installable within 5 minutes" >&2
+          echo "py-ppc-smgw==${VERSION} did not become installable within 15 minutes" >&2
           exit 1
