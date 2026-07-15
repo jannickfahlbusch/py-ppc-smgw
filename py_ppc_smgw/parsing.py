@@ -170,7 +170,8 @@ def parse_export_meter_values(content: bytes) -> list[MeterEntry]:
 
 
 def logical_name_to_obis(logical_name: str) -> OBISCode:
-    """Convert logical name like '0100020800ff.meter.sm' to OBIS '1-0:2.8.0'.
+    """
+    Convert logical name like '0100020800ff.meter.sm' to OBIS '1-0:2.8.0'.
 
     Returns the full logical name unchanged if the hex part is too short to be a
     COSEM code.
@@ -182,7 +183,8 @@ def logical_name_to_obis(logical_name: str) -> OBISCode:
 
 
 def cosem_hex_to_obis(hex_part: str) -> OBISCode:
-    """Convert a bare COSEM hex code like '0100020800ff' to OBIS '1-0:2.8.0'.
+    """
+    Convert a bare COSEM hex code like '0100020800ff' to OBIS '1-0:2.8.0'.
 
     Returns the input unchanged if it is too short to be a COSEM code.
     """
@@ -197,7 +199,8 @@ def cosem_hex_to_obis(hex_part: str) -> OBISCode:
 
 
 def parse_meter_profile(content: bytes) -> MeterProfile:
-    """Parse meter setup metadata from an exportMeterProfile CMS response.
+    """
+    Parse meter setup metadata from an exportMeterProfile CMS response.
 
     Extracts the read-out cadence (samplerate), active flag and the list of captured
     OBIS codes from the signed LMN container. Individual missing fields degrade to

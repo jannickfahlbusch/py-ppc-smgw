@@ -133,7 +133,8 @@ class PPCSMGWClient:
         return readings
 
     async def get_meter_profile(self, meter: Meter) -> MeterProfile:
-        """Fetch meter setup metadata: read-out cadence, active flag, captured OBIS codes.
+        """
+        Fetch meter setup metadata: read-out cadence, active flag, captured OBIS codes.
 
         Sourced from the CMS-signed exportMeterProfile response. Intended to be called once
         at configuration / component-setup time, not on every poll cycle.

@@ -21,7 +21,13 @@ from py_ppc_smgw.types import Meter, MeterProfile
 # A minimal, synthetic LMN container mirroring the real exportMeterProfile
 # structure. IDs are fabricated; only the field shapes are realistic.
 _METER_PROFILE_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
-<klc:container id="00000000e000.synthmeter00000001.sm" xmlns:adevs="urn:k461-dke-de:abstract_device_setup-1" xmlns:adls="urn:k461-dke-de:abstract_device_lmn_setup-1" xmlns:cox="urn:k461-dke-de:extension-1" xmlns:ems="urn:k461-dke-de:e_meter_sensor_setup-1" xmlns:klc="urn:k461-dke-de:kaf_lmn_container-1" xmlns:kli="urn:k461-dke-de:kaf_lmn_index-1">
+<klc:container id="00000000e000.synthmeter00000001.sm"
+ xmlns:adevs="urn:k461-dke-de:abstract_device_setup-1"
+ xmlns:adls="urn:k461-dke-de:abstract_device_lmn_setup-1"
+ xmlns:cox="urn:k461-dke-de:extension-1"
+ xmlns:ems="urn:k461-dke-de:e_meter_sensor_setup-1"
+ xmlns:klc="urn:k461-dke-de:kaf_lmn_container-1"
+ xmlns:kli="urn:k461-dke-de:kaf_lmn_index-1">
   <klc:e_meter_device_object class_id="32809" class_version="0" id="00000000e001.synthmeter00000001.sm">
     <ems:attributes count="19">
       <cox:logical_name id="1">00000000e001.synthmeter00000001.sm</cox:logical_name>

@@ -20,7 +20,8 @@ class Meter:
 
 @dataclass
 class MeterProfile:
-    """Meter setup metadata from the signed exportMeterProfile response.
+    """
+    Meter setup metadata from the signed exportMeterProfile response.
 
     Intended for one-shot use at configuration/setup time, not the poll loop.
     """
