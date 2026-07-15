@@ -49,12 +49,17 @@ class PPCSMGWClient:
     def session_active(self) -> bool:
         return self._session_active
 
-    async def _request(self, action: Action, additional_parameters: dict[str, str] | None = None) -> httpx.Response:
+    async def _request(
+        self,
+        action: Action,
+        additional_parameters: dict[str, str] | None = None,
+        timeout: float = 10,
+    ) -> httpx.Response:
         return await self.httpx_client.post(
             self.host,
             data={"action": action.value, **(additional_parameters or {})},
             cookies=self._cookies,
-            timeout=10,
+            timeout=timeout,
             auth=self._auth,
         )
 
@@ -132,9 +137,12 @@ class PPCSMGWClient:
 
         Sourced from the CMS-signed exportMeterProfile response. Intended to be called once
         at configuration / component-setup time, not on every poll cycle.
+
+        This action is slow: the gateway fetches the profile from the meter over the LMN link
+        on demand and can take well over 10s to respond, so a longer timeout is used.
         """
         self.logger.info("getting meter profile")
-        response = await self._request(Action.ExportMeterProfile, {"mid": meter.mid})
+        response = await self._request(Action.ExportMeterProfile, {"mid": meter.mid}, timeout=60)
         profile = parse_meter_profile(response.content)
         profile.mid = meter.mid
         self.logger.debug(f"Got meter profile: {profile}")
