@@ -19,6 +19,19 @@ class Meter:
 
 
 @dataclass
+class MeterProfile:
+    """Meter setup metadata from the signed exportMeterProfile response.
+
+    Intended for one-shot use at configuration/setup time, not the poll loop.
+    """
+
+    mid: str
+    samplerate_s: int | None
+    active: bool | None
+    captured_obis: list["OBISCode"]
+
+
+@dataclass
 class MeterEntry:
     value: float
     unit: int

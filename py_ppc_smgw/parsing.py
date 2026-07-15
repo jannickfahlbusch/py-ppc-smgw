@@ -7,11 +7,12 @@ from typing import cast
 from asn1crypto import cms
 from bs4 import BeautifulSoup, Tag
 
-from .types import FirmwareVersion, Meter, MeterEntry, OBISCode, Reading
+from .types import FirmwareVersion, Meter, MeterEntry, MeterProfile, OBISCode, Reading
 
 _CMS_XML_END_TAGS = (
     b"</ns1:object>",
     b"</khw:container>",
+    b"</klc:container>",
     b"</taf01:object>",
     b"</taf07:object>",
 )
@@ -169,13 +170,68 @@ def parse_export_meter_values(content: bytes) -> list[MeterEntry]:
 
 
 def logical_name_to_obis(logical_name: str) -> OBISCode:
-    """Convert logical name like '0100020800ff.meter.sm' to OBIS '1-0:2.8.0'."""
+    """Convert logical name like '0100020800ff.meter.sm' to OBIS '1-0:2.8.0'.
+
+    Returns the full logical name unchanged if the hex part is too short to be a
+    COSEM code.
+    """
     hex_part = logical_name.split(".", maxsplit=1)[0] if "." in logical_name else logical_name
     if len(hex_part) < 12:
         return logical_name
+    return cosem_hex_to_obis(hex_part)
+
+
+def cosem_hex_to_obis(hex_part: str) -> OBISCode:
+    """Convert a bare COSEM hex code like '0100020800ff' to OBIS '1-0:2.8.0'.
+
+    Returns the input unchanged if it is too short to be a COSEM code.
+    """
+    if len(hex_part) < 12:
+        return hex_part
     a = int(hex_part[0:2], 16)
     b = int(hex_part[2:4], 16)
     c = int(hex_part[4:6], 16)
     d = int(hex_part[6:8], 16)
     e = int(hex_part[8:10], 16)
     return f"{a}-{b}:{c}.{d}.{e}"
+
+
+def parse_meter_profile(content: bytes) -> MeterProfile:
+    """Parse meter setup metadata from an exportMeterProfile CMS response.
+
+    Extracts the read-out cadence (samplerate), active flag and the list of captured
+    OBIS codes from the signed LMN container. Individual missing fields degrade to
+    None / empty list rather than raising, since the gateway controls the XML layout.
+    (Malformed or non-XML content still raises, as with the other export parsers.)
+    """
+    xml_content = extract_xml_from_cms(content)
+
+    ns = {
+        "klc": "urn:k461-dke-de:kaf_lmn_container-1",
+        "adevs": "urn:k461-dke-de:abstract_device_setup-1",
+        "ems": "urn:k461-dke-de:e_meter_sensor_setup-1",
+    }
+
+    root = ET.fromstring(xml_content)
+
+    samplerate_el = root.find(".//adevs:samplerate", ns)
+    samplerate_s = (
+        int(samplerate_el.text)
+        if samplerate_el is not None and samplerate_el.text and samplerate_el.text.strip().isdigit()
+        else None
+    )
+
+    active_el = root.find(".//adevs:active", ns)
+    active = active_el.text.strip() == "1" if active_el is not None and active_el.text else None
+
+    captured_obis: list[OBISCode] = []
+    for value_el in root.findall(".//ems:values/ems:value", ns):
+        if value_el.text:
+            captured_obis.append(cosem_hex_to_obis(value_el.text.strip()))
+
+    return MeterProfile(
+        mid="",
+        samplerate_s=samplerate_s,
+        active=active,
+        captured_obis=captured_obis,
+    )
