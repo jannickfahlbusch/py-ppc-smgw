@@ -6,6 +6,7 @@ class Action(Enum):
     Logout = "logout"
     MeterForm = "meterform"
     ShowMeterProfile = "showMeterProfile"
+    ExportMeterProfile = "exportMeterProfile"
     SoftwareVersions = "swversions"
     Selftest = "selftest"
 

@@ -52,6 +52,28 @@ async def main():
             readings = await ppc_smgw_client.get_meter_reading(meter)
             logger.info(f"{meter}: {readings}")
 
+            print_line("Meter Profile (parsed via library get_meter_profile()):")
+            profile = await ppc_smgw_client.get_meter_profile(meter)
+            logger.info(f"MeterProfile: {profile}")
+            logger.info(
+                f"  device_identifier={profile.device_identifier} "
+                f"samplerate_s={profile.samplerate_s} active={profile.active}"
+            )
+            logger.info(f"  captured_obis={profile.captured_obis}")
+
+            print_line("Meter Profile (raw CMS dump, 60s timeout, NO tkn):")
+            raw_profile = await ppc_smgw_client._request(
+                Action.ExportMeterProfile,
+                {"mid": meter.mid},
+                timeout=60,
+            )
+            with open("/tmp/meter_profile_sample.bin", "wb") as f:
+                f.write(raw_profile.content)
+            logger.info(
+                f"Saved {len(raw_profile.content)} bytes to /tmp/meter_profile_sample.bin "
+                f"(status={raw_profile.status_code})"
+            )
+
             print_line("Export Meter Values (raw CMS dump):")
             raw_resp = await ppc_smgw_client._request(
                 Action.ExportMeterValues,

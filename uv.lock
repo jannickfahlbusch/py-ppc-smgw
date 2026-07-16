@@ -392,7 +392,7 @@ dev = [
 requires-dist = [
     { name = "asn1crypto", specifier = ">=1.5.1" },
     { name = "beautifulsoup4", specifier = ">=4.12,<5" },
-    { name = "cryptography", specifier = ">=48.0.0" },
+    { name = "cryptography", specifier = ">=46.0.5" },
     { name = "httpx", specifier = ">=0.28,<1" },
 ]
 

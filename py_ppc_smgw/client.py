@@ -10,10 +10,11 @@ from .errors import LoginFailedError, SessionCookieStillPresentError
 from .parsing import (
     parse_export_meter_values,
     parse_firmware_versions,
+    parse_meter_profile,
     parse_meter_reading,
     parse_meters,
 )
-from .types import FirmwareVersion, Meter, MeterEntry, OBISCode, Reading
+from .types import FirmwareVersion, Meter, MeterEntry, MeterProfile, OBISCode, Reading
 
 
 class PPCSMGWClient:
@@ -48,12 +49,17 @@ class PPCSMGWClient:
     def session_active(self) -> bool:
         return self._session_active
 
-    async def _request(self, action: Action, additional_parameters: dict[str, str] | None = None) -> httpx.Response:
+    async def _request(
+        self,
+        action: Action,
+        additional_parameters: dict[str, str] | None = None,
+        timeout: float = 10,
+    ) -> httpx.Response:
         return await self.httpx_client.post(
             self.host,
             data={"action": action.value, **(additional_parameters or {})},
             cookies=self._cookies,
-            timeout=10,
+            timeout=timeout,
             auth=self._auth,
         )
 
@@ -125,6 +131,23 @@ class PPCSMGWClient:
         readings = parse_meter_reading(response.content)
         self.logger.info(f"Found {len(readings)} readings")
         return readings
+
+    async def get_meter_profile(self, meter: Meter) -> MeterProfile:
+        """
+        Fetch meter setup metadata: read-out cadence, active flag, captured OBIS codes.
+
+        Sourced from the CMS-signed exportMeterProfile response. Intended to be called once
+        at configuration / component-setup time, not on every poll cycle.
+
+        This action is slow: the gateway fetches the profile from the meter over the LMN link
+        on demand and can take well over 10s to respond, so a longer timeout is used.
+        """
+        self.logger.info("getting meter profile")
+        response = await self._request(Action.ExportMeterProfile, {"mid": meter.mid}, timeout=60)
+        profile = parse_meter_profile(response.content)
+        profile.mid = meter.mid
+        self.logger.debug(f"Got meter profile: {profile}")
+        return profile
 
     async def export_meter_values(self, meter: Meter, from_time: str, to_time: str) -> list[MeterEntry]:
         response = await self._request(

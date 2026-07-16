@@ -92,6 +92,10 @@ ignore = [
     "COM812",  # incompatible with formatter
     "ISC001",  # incompatible with formatter
 
+    # httpx has first-class per-request `timeout=`; forwarding a timeout arg to it is
+    # idiomatic and clearer than wrapping every call in `asyncio.timeout()`.
+    "ASYNC109",  # Async function definition with a `timeout` parameter
+
     # Docstring noise — small lib with clear naming
     "D100",    # Missing docstring in public module
     "D101",    # Missing docstring in public class
