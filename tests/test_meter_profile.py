@@ -28,6 +28,17 @@ _METER_PROFILE_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
  xmlns:ems="urn:k461-dke-de:e_meter_sensor_setup-1"
  xmlns:klc="urn:k461-dke-de:kaf_lmn_container-1"
  xmlns:kli="urn:k461-dke-de:kaf_lmn_index-1">
+  <klc:kaf_object class_id="32800" class_version="0" id="00000000e000.synthmeter00000001.sm">
+    <kli:attributes count="3">
+      <cox:logical_name id="1">00000000e000.synthmeter00000001.sm</cox:logical_name>
+      <kli:interface id="2">IF_GW_MTR</kli:interface>
+      <kli:device_reference id="3">
+        <cox:logical_name>00000000e001.synthmeter00000001.sm</cox:logical_name>
+        <cox:class_id>32809</cox:class_id>
+        <cox:class_version>0</cox:class_version>
+      </kli:device_reference>
+    </kli:attributes>
+  </klc:kaf_object>
   <klc:e_meter_device_object class_id="32809" class_version="0" id="00000000e001.synthmeter00000001.sm">
     <ems:attributes count="19">
       <cox:logical_name id="1">00000000e001.synthmeter00000001.sm</cox:logical_name>
@@ -87,11 +98,28 @@ class TestCosemHexToObis:
 class TestParseMeterProfile:
     def test_full_profile(self) -> None:
         profile = parse_meter_profile(METER_PROFILE_CMS)
+        assert profile.device_identifier == "synthmeter00000001"
         assert profile.samplerate_s == 900
         assert profile.active is True
         assert profile.captured_obis == _EXPECTED_OBIS
         # mid is set by the client, not the parser
         assert profile.mid == ""
+
+    def test_reads_are_scoped_to_the_meter_device_object(self) -> None:
+        # The sibling kaf_object precedes the e_meter_device_object in the real container.
+        # Parsing must pick the meter object's fields, not blindly the first .// match.
+        profile = parse_meter_profile(METER_PROFILE_CMS)
+        assert profile.device_identifier == "synthmeter00000001"
+        assert profile.samplerate_s == 900
+        assert profile.captured_obis == _EXPECTED_OBIS
+
+    def test_missing_device_object_yields_empty_profile(self) -> None:
+        xml = _METER_PROFILE_XML.replace(b"e_meter_device_object", b"other_object")
+        profile = parse_meter_profile(_fake_cms(xml))
+        assert profile.device_identifier is None
+        assert profile.samplerate_s is None
+        assert profile.active is None
+        assert profile.captured_obis == []
 
     def test_inactive_meter(self) -> None:
         xml = _METER_PROFILE_XML.replace(
@@ -99,6 +127,12 @@ class TestParseMeterProfile:
             b'<adevs:active id="4">0</adevs:active>',
         )
         assert parse_meter_profile(_fake_cms(xml)).active is False
+
+    def test_missing_device_identifier_is_none(self) -> None:
+        xml = _METER_PROFILE_XML.replace(
+            b'<adevs:device_identifier id="2">synthmeter00000001</adevs:device_identifier>', b""
+        )
+        assert parse_meter_profile(_fake_cms(xml)).device_identifier is None
 
     def test_missing_samplerate_is_none(self) -> None:
         xml = _METER_PROFILE_XML.replace(b'<adevs:samplerate id="5">900</adevs:samplerate>', b"")
@@ -158,6 +192,8 @@ class TestGetMeterProfileIntegration:
 
         assert isinstance(profile, MeterProfile)
         assert profile.mid == "fake_mid_0001"
+        # device_identifier comes from the XML (the meter's own serial), distinct from the session mid
+        assert profile.device_identifier == "synthmeter00000001"
         assert profile.samplerate_s == 900
         assert profile.active is True
         assert profile.captured_obis == _EXPECTED_OBIS

@@ -202,8 +202,9 @@ def parse_meter_profile(content: bytes) -> MeterProfile:
     """
     Parse meter setup metadata from an exportMeterProfile CMS response.
 
-    Extracts the read-out cadence (samplerate), active flag and the list of captured
-    OBIS codes from the signed LMN container. Individual missing fields degrade to
+    Extracts the meter's own identifier (serial), read-out cadence (samplerate), active
+    flag and the list of captured OBIS codes from the signed LMN container. Reads are
+    scoped to the meter's e_meter_device_object. Individual missing fields degrade to
     None / empty list rather than raising, since the gateway controls the XML layout.
     (Malformed or non-XML content still raises, as with the other export parsers.)
     """
@@ -217,23 +218,36 @@ def parse_meter_profile(content: bytes) -> MeterProfile:
 
     root = ET.fromstring(xml_content)
 
-    samplerate_el = root.find(".//adevs:samplerate", ns)
+    # Scope reads to the meter's device object. A real container also holds a sibling
+    # klc:kaf_object (index/routing), and could in principle hold more than one meter
+    # object; searching from root with .// would risk picking up the wrong element or
+    # concatenating OBIS across meters. We read the first e_meter_device_object — the
+    # gateway returns the profile for the single mid we requested.
+    device = root.find(".//klc:e_meter_device_object", ns)
+    if device is None:
+        return MeterProfile(mid="", device_identifier=None, samplerate_s=None, active=None, captured_obis=[])
+
+    ident_el = device.find(".//adevs:device_identifier", ns)
+    device_identifier = ident_el.text.strip() if ident_el is not None and ident_el.text else None
+
+    samplerate_el = device.find(".//adevs:samplerate", ns)
     samplerate_s = (
-        int(samplerate_el.text)
+        int(samplerate_el.text.strip())
         if samplerate_el is not None and samplerate_el.text and samplerate_el.text.strip().isdigit()
         else None
     )
 
-    active_el = root.find(".//adevs:active", ns)
+    active_el = device.find(".//adevs:active", ns)
     active = active_el.text.strip() == "1" if active_el is not None and active_el.text else None
 
     captured_obis: list[OBISCode] = []
-    for value_el in root.findall(".//ems:values/ems:value", ns):
+    for value_el in device.findall(".//ems:values/ems:value", ns):
         if value_el.text:
             captured_obis.append(cosem_hex_to_obis(value_el.text.strip()))
 
     return MeterProfile(
         mid="",
+        device_identifier=device_identifier,
         samplerate_s=samplerate_s,
         active=active,
         captured_obis=captured_obis,

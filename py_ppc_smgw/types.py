@@ -27,6 +27,7 @@ class MeterProfile:
     """
 
     mid: str
+    device_identifier: str | None  # meter's own serial (e.g. "1lgz..."), distinct from the session mid
     samplerate_s: int | None
     active: bool | None
     captured_obis: list["OBISCode"]
