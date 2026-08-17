@@ -1,5 +1,7 @@
 """PPC SMGW API."""
 
+import asyncio
+from collections.abc import Callable
 from logging import Logger
 from typing import Self
 
@@ -16,6 +18,12 @@ from .parsing import (
     parse_meters,
 )
 from .types import FirmwareVersion, Meter, MeterEntry, MeterProfile, Reading
+
+
+async def _run_parser[ParseResult](parser: Callable[[bytes], ParseResult], content: bytes) -> ParseResult:
+    """Run synchronous parsing outside the event loop."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, parser, content)
 
 
 class PPCSMGWClient:
@@ -125,11 +133,11 @@ class PPCSMGWClient:
 
     async def get_meters(self) -> list[Meter]:
         response = await self._request(action=Action.MeterForm)
-        return parse_meters(response.content)
+        return await _run_parser(parse_meters, response.content)
 
     async def get_meter_reading(self, meter: Meter) -> dict[OBIS, Reading]:
         response = await self._request(Action.ShowMeterProfile, {"mid": meter.mid})
-        readings = parse_meter_reading(response.content)
+        readings = await _run_parser(parse_meter_reading, response.content)
         self.logger.info(f"Found {len(readings)} readings")
         return readings
 
@@ -145,7 +153,7 @@ class PPCSMGWClient:
         """
         self.logger.info("getting meter profile")
         response = await self._request(Action.ExportMeterProfile, {"mid": meter.mid}, timeout=60)
-        profile = parse_meter_profile(response.content)
+        profile = await _run_parser(parse_meter_profile, response.content)
         profile.mid = meter.mid
         self.logger.debug(f"Got meter profile: {profile}")
         return profile
@@ -155,14 +163,14 @@ class PPCSMGWClient:
             Action.ExportMeterValues,
             {"mid": meter.mid, "from": from_time, "to": to_time},
         )
-        entries = parse_export_meter_values(response.content)
+        entries = await _run_parser(parse_export_meter_values, response.content)
         self.logger.info(f"Parsed {len(entries)} meter entries from export")
         return entries
 
     async def get_firmware_versions(self) -> list[FirmwareVersion]:
         self.logger.info("getting firmware versions")
         response = await self._request(Action.SoftwareVersions)
-        versions = parse_firmware_versions(response.content)
+        versions = await _run_parser(parse_firmware_versions, response.content)
         self.logger.debug(f"Got versions: {versions}")
         return versions
 
