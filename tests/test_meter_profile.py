@@ -10,10 +10,11 @@ import logging
 
 import httpx
 import pytest
+from obis_parser import OBIS
 from pytest_httpx import HTTPXMock
 
 from py_ppc_smgw import PPCSMGWClient
-from py_ppc_smgw.parsing import cosem_hex_to_obis, parse_meter_profile
+from py_ppc_smgw.parsing import parse_meter_profile
 from py_ppc_smgw.types import Meter, MeterProfile
 
 # --- Synthetic fixtures -----------------------------------------------------
@@ -71,25 +72,13 @@ def _fake_cms(xml: bytes) -> bytes:
 
 METER_PROFILE_CMS = _fake_cms(_METER_PROFILE_XML)
 
-_EXPECTED_OBIS = ["1-0:1.8.0", "1-0:2.8.0", "1-0:32.7.0", "1-0:52.7.0", "1-0:72.7.0"]
-
-
-# --- cosem_hex_to_obis ------------------------------------------------------
-
-
-class TestCosemHexToObis:
-    @pytest.mark.parametrize(
-        ("hex_code", "expected"),
-        [
-            ("0100010800ff", "1-0:1.8.0"),
-            ("0100020800ff", "1-0:2.8.0"),
-            ("0100200700ff", "1-0:32.7.0"),
-            ("short", "short"),
-            ("", ""),
-        ],
-    )
-    def test_conversion(self, hex_code: str, expected: str) -> None:
-        assert cosem_hex_to_obis(hex_code) == expected
+_EXPECTED_OBIS = [
+    OBIS(1, 0, 1, 8, 0, 255),
+    OBIS(1, 0, 2, 8, 0, 255),
+    OBIS(1, 0, 32, 7, 0, 255),
+    OBIS(1, 0, 52, 7, 0, 255),
+    OBIS(1, 0, 72, 7, 0, 255),
+]
 
 
 # --- parse_meter_profile ----------------------------------------------------

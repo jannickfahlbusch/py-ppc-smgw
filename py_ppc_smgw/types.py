@@ -1,15 +1,14 @@
 from dataclasses import dataclass
 from datetime import datetime
 
+from obis_parser import OBIS
+
 
 @dataclass
 class Reading:
     value: str
     timestamp: datetime
-    obis: str
-
-
-type OBISCode = str
+    obis: OBIS
 
 
 @dataclass
@@ -30,7 +29,7 @@ class MeterProfile:
     device_identifier: str | None  # meter's own serial (e.g. "1lgz..."), distinct from the session mid
     samplerate_s: int | None
     active: bool | None
-    captured_obis: list["OBISCode"]
+    captured_obis: list[OBIS]
 
 
 @dataclass
@@ -40,7 +39,7 @@ class MeterEntry:
     scaler: int
     status: int
     capture_time: datetime
-    obis: OBISCode
+    obis: OBIS
     signature: str
 
     @property

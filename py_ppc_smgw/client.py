@@ -4,6 +4,7 @@ from logging import Logger
 from typing import Self
 
 import httpx
+from obis_parser import OBIS
 
 from .actions import Action
 from .errors import LoginFailedError, SessionCookieStillPresentError
@@ -14,7 +15,7 @@ from .parsing import (
     parse_meter_reading,
     parse_meters,
 )
-from .types import FirmwareVersion, Meter, MeterEntry, MeterProfile, OBISCode, Reading
+from .types import FirmwareVersion, Meter, MeterEntry, MeterProfile, Reading
 
 
 class PPCSMGWClient:
@@ -126,7 +127,7 @@ class PPCSMGWClient:
         response = await self._request(action=Action.MeterForm)
         return parse_meters(response.content)
 
-    async def get_meter_reading(self, meter: Meter) -> dict[OBISCode, Reading]:
+    async def get_meter_reading(self, meter: Meter) -> dict[OBIS, Reading]:
         response = await self._request(Action.ShowMeterProfile, {"mid": meter.mid})
         readings = parse_meter_reading(response.content)
         self.logger.info(f"Found {len(readings)} readings")

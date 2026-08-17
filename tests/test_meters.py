@@ -4,6 +4,7 @@ import logging
 
 import httpx
 import pytest
+from obis_parser import OBIS
 from pytest_httpx import HTTPXMock
 
 from py_ppc_smgw import PPCSMGWClient
@@ -76,7 +77,7 @@ class TestGetMeterReadingIntegration:
         ) as client:
             readings = await client.get_meter_reading(Meter(mid="my_meter_id", name="test.sm"))
 
-        assert "1-0:2.8.0" in readings
+        assert OBIS(1, 0, 2, 8, 0) in readings
         post_requests = [
             r for r in httpx_mock.get_requests() if r.method == "POST" and b"action=showMeterProfile" in r.content
         ]

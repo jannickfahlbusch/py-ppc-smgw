@@ -6,8 +6,9 @@ from typing import cast
 
 from asn1crypto import cms
 from bs4 import BeautifulSoup, Tag
+from obis_parser import OBIS
 
-from .types import FirmwareVersion, Meter, MeterEntry, MeterProfile, OBISCode, Reading
+from .types import FirmwareVersion, Meter, MeterEntry, MeterProfile, Reading
 
 _CMS_XML_END_TAGS = (
     b"</ns1:object>",
@@ -68,7 +69,7 @@ def parse_meters(html: bytes) -> list[Meter]:
     return meters
 
 
-def parse_meter_reading(html: bytes) -> dict[OBISCode, Reading]:
+def parse_meter_reading(html: bytes) -> dict[OBIS, Reading]:
     """Parse meter readings from showMeterProfile HTML response."""
     soup = BeautifulSoup(html, "html.parser")
 
@@ -78,7 +79,7 @@ def parse_meter_reading(html: bytes) -> dict[OBISCode, Reading]:
 
     rows = table_data.find_all("tr")
     timestamp: datetime | None = None
-    readings: dict[OBISCode, Reading] = {}
+    readings: dict[OBIS, Reading] = {}
 
     for row in rows:
         if not isinstance(row, Tag):
@@ -99,11 +100,14 @@ def parse_meter_reading(html: bytes) -> dict[OBISCode, Reading]:
         if not isinstance(value_cell, Tag) or value_cell.string is None:
             continue
 
-        obis_code = obis_cell.string
-        readings[obis_code] = Reading(
+        obis = OBIS.parse(obis_cell.string.strip())
+        if obis is None:
+            continue
+
+        readings[obis] = Reading(
             value=value_cell.string,
             timestamp=timestamp,
-            obis=obis_code,
+            obis=obis,
         )
 
     return readings
@@ -141,7 +145,9 @@ def parse_export_meter_values(content: bytes) -> list[MeterEntry]:
 
     capture_obj = root.find(".//ns1:capture_object/ns2:logical_name", ns)
     obis_logical = capture_obj.text if capture_obj is not None and capture_obj.text else ""
-    obis = logical_name_to_obis(obis_logical)
+    obis = OBIS.parse(obis_logical)
+    if obis is None:
+        return []
 
     for entry in root.findall(".//ns1:entry_gateway_signed", ns):
         value_el = entry.find("ns2:value/ns2:long64", ns)
@@ -167,35 +173,6 @@ def parse_export_meter_values(content: bytes) -> list[MeterEntry]:
         )
 
     return entries
-
-
-def logical_name_to_obis(logical_name: str) -> OBISCode:
-    """
-    Convert logical name like '0100020800ff.meter.sm' to OBIS '1-0:2.8.0'.
-
-    Returns the full logical name unchanged if the hex part is too short to be a
-    COSEM code.
-    """
-    hex_part = logical_name.split(".", maxsplit=1)[0] if "." in logical_name else logical_name
-    if len(hex_part) < 12:
-        return logical_name
-    return cosem_hex_to_obis(hex_part)
-
-
-def cosem_hex_to_obis(hex_part: str) -> OBISCode:
-    """
-    Convert a bare COSEM hex code like '0100020800ff' to OBIS '1-0:2.8.0'.
-
-    Returns the input unchanged if it is too short to be a COSEM code.
-    """
-    if len(hex_part) < 12:
-        return hex_part
-    a = int(hex_part[0:2], 16)
-    b = int(hex_part[2:4], 16)
-    c = int(hex_part[4:6], 16)
-    d = int(hex_part[6:8], 16)
-    e = int(hex_part[8:10], 16)
-    return f"{a}-{b}:{c}.{d}.{e}"
 
 
 def parse_meter_profile(content: bytes) -> MeterProfile:
@@ -240,10 +217,10 @@ def parse_meter_profile(content: bytes) -> MeterProfile:
     active_el = device.find(".//adevs:active", ns)
     active = active_el.text.strip() == "1" if active_el is not None and active_el.text else None
 
-    captured_obis: list[OBISCode] = []
+    captured_obis: list[OBIS] = []
     for value_el in device.findall(".//ems:values/ems:value", ns):
-        if value_el.text:
-            captured_obis.append(cosem_hex_to_obis(value_el.text.strip()))
+        if value_el.text and (obis := OBIS.parse(value_el.text.strip())):
+            captured_obis.append(obis)
 
     return MeterProfile(
         mid="",

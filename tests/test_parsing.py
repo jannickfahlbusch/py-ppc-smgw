@@ -3,9 +3,9 @@
 from datetime import datetime
 
 import pytest
+from obis_parser import OBIS
 
 from py_ppc_smgw.parsing import (
-    logical_name_to_obis,
     parse_firmware_versions,
     parse_meter_reading,
     parse_meters,
@@ -99,26 +99,29 @@ class TestParseMeters:
 
 class TestParseMeterReading:
     def test_single_obis(self) -> None:
+        obis = OBIS(1, 0, 2, 8, 0)
         assert parse_meter_reading(READING_SINGLE) == {
-            "1-0:2.8.0": Reading(
+            obis: Reading(
                 value="10.5993",
                 timestamp=datetime(2026, 5, 14, 12, 0, 1),
-                obis="1-0:2.8.0",
+                obis=obis,
             ),
         }
 
     def test_multi_obis_inherits_timestamp(self) -> None:
+        obis_2_8 = OBIS(1, 0, 2, 8, 0)
+        obis_1_8 = OBIS(1, 0, 1, 8, 0)
         readings = parse_meter_reading(READING_MULTI_OBIS)
         assert readings == {
-            "1-0:2.8.0": Reading(
+            obis_2_8: Reading(
                 value="10.5993",
                 timestamp=datetime(2026, 5, 14, 12, 0, 1),
-                obis="1-0:2.8.0",
+                obis=obis_2_8,
             ),
-            "1-0:1.8.0": Reading(
+            obis_1_8: Reading(
                 value="3344.0514",
                 timestamp=datetime(2026, 5, 14, 12, 0, 1),
-                obis="1-0:1.8.0",
+                obis=obis_1_8,
             ),
         }
 
@@ -136,17 +139,3 @@ class TestParseFirmwareVersions:
             ),
             FirmwareVersion(component="smgw-services", version="34868", checksum="304402201df9b452"),
         ]
-
-
-class TestLogicalNameToObis:
-    @pytest.mark.parametrize(
-        ("logical_name", "expected"),
-        [
-            ("0100010800ff.1lgz0067285558.sm", "1-0:1.8.0"),
-            ("0100020800ff.1lgz0067285558.sm", "1-0:2.8.0"),
-            ("0100100700ff.meter.sm", "1-0:16.7.0"),
-            ("short", "short"),
-        ],
-    )
-    def test_conversion(self, logical_name: str, expected: str) -> None:
-        assert logical_name_to_obis(logical_name) == expected

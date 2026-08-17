@@ -36,21 +36,23 @@ async def main():
         logger.info("Connected!")
 
         print_line("Firmware Versions:")
-
         versions = await ppc_smgw_client.get_firmware_versions()
-
         for version in versions:
             logger.info(f"{version.component}: {version.version} ({version.checksum})")
 
         print_line("Meters:")
-
         meters = await ppc_smgw_client.get_meters()
         logger.info(meters)
 
         for meter in meters:
             print_line("Current Readings:")
             readings = await ppc_smgw_client.get_meter_reading(meter)
-            logger.info(f"{meter}: {readings}")
+            for obis, reading in readings.items():
+                m = obis.decode()
+                logger.info(
+                    f"  [{obis.canonical}] {obis.name}: {reading.value} "
+                    f"(device_class={m.device_class}, state_class={m.state_class}, unit={m.unit})"
+                )
 
             print_line("Meter Profile (parsed via library get_meter_profile()):")
             profile = await ppc_smgw_client.get_meter_profile(meter)
@@ -85,10 +87,13 @@ async def main():
 
             print_line("Export Meter Values (parsed):")
             entries = await ppc_smgw_client.export_meter_values(
-                meter, from_time=datetime.now() - timedelta(hours=2), to_time=datetime.now()
+                meter,
+                from_time=str(datetime.now() - timedelta(hours=2)),
+                to_time=str(datetime.now()),
             )
             for entry in entries:
                 logger.info(f"{entry.capture_time}: {entry.value}, {entry.unit} {entry.scaler} {entry.obis}")
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

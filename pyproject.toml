@@ -33,6 +33,7 @@ dependencies = [
     "beautifulsoup4>=4.12,<5",
     "cryptography>=46.0.5",
     "asn1crypto>=1.5.1",
+    "obis-parser>=0.0.1",
 ]
 
 [project.urls]
@@ -91,6 +92,7 @@ ignore = [
     "D212",    # multi-line-summary-first-line (incompatible with formatter)
     "COM812",  # incompatible with formatter
     "ISC001",  # incompatible with formatter
+    "CPY",     # flake8-copyright (missing copyright notice at top of file)
 
     # httpx has first-class per-request `timeout=`; forwarding a timeout arg to it is
     # idiomatic and clearer than wrapping every call in `asyncio.timeout()`.
