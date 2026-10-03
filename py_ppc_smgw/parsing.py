@@ -2,47 +2,83 @@
 
 import xml.etree.ElementTree as ET
 from datetime import datetime
-from typing import cast
+from xml.parsers import expat
 
-from asn1crypto import cms
 from bs4 import BeautifulSoup, Tag
 from obis_parser import OBIS
 
+from .errors import ResponseParseError
 from .types import FirmwareVersion, Meter, MeterEntry, MeterProfile, Reading
 
-_CMS_XML_END_TAGS = (
-    b"</ns1:object>",
-    b"</khw:container>",
-    b"</klc:container>",
-    b"</taf01:object>",
-    b"</taf07:object>",
-)
+_DKE_PROFILE_GENERIC_NS = {
+    "p": "urn:k461-dke-de:profile_generic-1",
+    "e": "urn:k461-dke-de:extension-1",
+}
+_EXPECTED_PROFILE_ROOT = f"{{{_DKE_PROFILE_GENERIC_NS['p']}}}object"
+
+
+class _RootClosedError(Exception):
+    """
+    Internal signal: the embedded document root element was closed.
+
+    Raised from the expat end-element handler to stop parsing immediately at the
+    document boundary, excluding any subsequent CMS signature trailer bytes.
+    """
 
 
 def extract_xml_from_cms(content: bytes) -> bytes:
     """
-    Extract embedded XML from a CMS/PKCS#7 SignedData envelope.
+    Extract embedded XML from a CMS/PKCS#7 SignedData envelope or raw XML stream.
 
-    Tries proper ASN.1 parsing first (works with real SMGW responses).
-    Falls back to marker-based extraction (works with fake server / incomplete CMS).
+    Uses a streaming expat depth counter to slice out the XML document at the root
+    element boundary, stripping trailing PKCS#7 signature bytes without ASN.1 parsing.
     """
+    start = content.find(b"<?xml")
+    if start < 0:
+        raise ResponseParseError("No XML declaration ('<?xml') found in export response.")
+
+    payload = content[start:]
+    parser = expat.ParserCreate()
+    depth = 0
+    max_depth = 0
+    root_close_start = -1
+
+    def _on_start(_name: str, _attrs: dict[str, str]) -> None:
+        nonlocal depth, max_depth
+        depth += 1
+        max_depth = max(max_depth, depth)
+
+    def _on_end(_name: str) -> None:
+        nonlocal depth, root_close_start
+        depth -= 1
+        if depth == 0:
+            root_close_start = parser.CurrentByteIndex
+            raise _RootClosedError
+
+    parser.StartElementHandler = _on_start
+    parser.EndElementHandler = _on_end
+
     try:
-        content_info = cms.ContentInfo.load(content)
-        signed_data = content_info["content"]
-        return cast("bytes", signed_data["encap_content_info"]["content"].native)
-    except Exception:
+        parser.Parse(payload, True)  # noqa: FBT003
+    except _RootClosedError:
         pass
+    except expat.ExpatError as err:
+        raise ResponseParseError(f"Embedded XML is not well-formed: {err}") from err
 
-    xml_start = content.find(b"<?xml")
-    if xml_start == -1:
-        raise ValueError("No XML found in export response")
+    if root_close_start < 0:
+        raise ResponseParseError("Embedded XML ended before its root was closed.")
 
-    for end_tag in _CMS_XML_END_TAGS:
-        end_pos = content.rfind(end_tag)
-        if end_pos != -1:
-            return content[xml_start : end_pos + len(end_tag)]
+    if max_depth < 2:
+        raise ResponseParseError("Embedded XML root has no child elements.")
 
-    return content[xml_start:]
+    if not payload.startswith(b"</", root_close_start):
+        raise ResponseParseError("Root closing tag not found where expected.")
+
+    close_end = payload.find(b">", root_close_start)
+    if close_end < 0:
+        raise ResponseParseError("Unterminated root closing tag in CMS response.")
+
+    return payload[: close_end + 1]
 
 
 def parse_meters(html: bytes) -> list[Meter]:
@@ -131,47 +167,103 @@ def parse_firmware_versions(html: bytes) -> list[FirmwareVersion]:
     return versions
 
 
-def parse_export_meter_values(content: bytes) -> list[MeterEntry]:
-    """Parse meter values from exportMeterValues CMS response."""
-    xml_content = extract_xml_from_cms(content)
+def _build_column_obis_map(root: ET.Element) -> dict[str, OBIS]:
+    """
+    Map each column ID to its OBIS code via the capture_objects block.
 
-    ns = {
-        "ns1": "urn:k461-dke-de:profile_generic-1",
-        "ns2": "urn:k461-dke-de:extension-1",
-    }
+    The logical_name element typically holds a COSEM identifier such as
+    '0100010800ff.1lgz0072999211.sm', where the prefix maps to OBIS 1-0:1.8.0.
+    """
+    capture_objects = root.find("p:attributes/p:capture_objects", _DKE_PROFILE_GENERIC_NS)
+    if capture_objects is None:
+        raise ResponseParseError("capture_objects element not found in CMS XML.")
 
-    root = ET.fromstring(xml_content)
-    entries: list[MeterEntry] = []
-
-    capture_obj = root.find(".//ns1:capture_object/ns2:logical_name", ns)
-    obis_logical = capture_obj.text if capture_obj is not None and capture_obj.text else ""
-    obis = OBIS.parse(obis_logical)
-    if obis is None:
-        return []
-
-    for entry in root.findall(".//ns1:entry_gateway_signed", ns):
-        value_el = entry.find("ns2:value/ns2:long64", ns)
-        scaler_el = entry.find("ns2:scaler", ns)
-        unit_el = entry.find("ns2:unit", ns)
-        status_el = entry.find("ns2:status/ns2:unsigned", ns)
-        time_el = entry.find("ns2:capture_time", ns)
-        sig_el = entry.find("ns2:smgw_signature", ns)
-
-        if value_el is None or time_el is None:
+    mapping: dict[str, OBIS] = {}
+    for obj in capture_objects.findall("p:capture_object", _DKE_PROFILE_GENERIC_NS):
+        obj_id = obj.attrib.get("id")
+        logical_name = obj.findtext("e:logical_name", default="", namespaces=_DKE_PROFILE_GENERIC_NS).strip()
+        if not obj_id or not logical_name:
             continue
 
-        entries.append(
-            MeterEntry(
-                value=float(value_el.text or "0"),
-                scaler=int(scaler_el.text or "0") if scaler_el is not None else 0,
-                unit=int(unit_el.text or "0") if unit_el is not None else 0,
-                status=int(status_el.text or "0") if status_el is not None else 0,
-                capture_time=datetime.fromisoformat(time_el.text) if time_el.text else datetime.now(),
-                obis=obis,
-                signature=sig_el.text or "" if sig_el is not None else "",
-            )
-        )
+        raw_obis = logical_name.split(".")[0].strip()
+        obis = OBIS.parse(raw_obis) or OBIS.parse(logical_name)
+        if obis is not None:
+            mapping[obj_id] = obis
 
+    return mapping
+
+
+def _parse_signed_entry(entry: ET.Element, obis: OBIS) -> MeterEntry | None:
+    """
+    Parse a single entry_gateway_signed element into a MeterEntry.
+
+    Returns None if mandatory value or capture_time fields are missing.
+    """
+    value_text = entry.findtext("e:value/e:long64", default="", namespaces=_DKE_PROFILE_GENERIC_NS).strip()
+    time_text = entry.findtext("e:capture_time", default="", namespaces=_DKE_PROFILE_GENERIC_NS).strip()
+    if not value_text or not time_text:
+        return None
+
+    scaler_text = entry.findtext("e:scaler", default="0", namespaces=_DKE_PROFILE_GENERIC_NS).strip()
+    unit_text = entry.findtext("e:unit", default="0", namespaces=_DKE_PROFILE_GENERIC_NS).strip()
+    status_text = entry.findtext("e:status/e:unsigned", default="0", namespaces=_DKE_PROFILE_GENERIC_NS).strip()
+    sig_text = entry.findtext("e:smgw_signature", default="", namespaces=_DKE_PROFILE_GENERIC_NS).strip()
+
+    try:
+        value = float(value_text)
+        scaler = int(scaler_text) if scaler_text else 0
+        unit = int(unit_text) if unit_text else 0
+        status = int(status_text) if status_text else 0
+        capture_time = datetime.fromisoformat(time_text)
+    except (ValueError, TypeError) as err:
+        raise ResponseParseError(f"Unparseable CMS meter entry: {err}") from err
+
+    return MeterEntry(
+        value=value,
+        unit=unit,
+        scaler=scaler,
+        status=status,
+        capture_time=capture_time,
+        obis=obis,
+        signature=sig_text,
+    )
+
+
+def parse_export_meter_values(content: bytes) -> list[MeterEntry]:
+    """
+    Parse meter values from exportMeterValues CMS response.
+
+    Extracts the embedded DKE profile_generic-1 XML document, resolves
+    column OBIS codes from capture_objects, and parses all signed meter entries.
+    Entries are sorted chronologically by capture_time and OBIS code.
+    """
+    xml_content = extract_xml_from_cms(content)
+    try:
+        root = ET.fromstring(xml_content)
+    except ET.ParseError as err:
+        raise ResponseParseError(f"Invalid embedded XML in export response: {err}") from err
+
+    if root.tag != _EXPECTED_PROFILE_ROOT:
+        raise ResponseParseError(f"Unsupported embedded XML root: {root.tag}")
+
+    column_obis = _build_column_obis_map(root)
+    simple_data = root.find("p:attributes/p:buffer/p:simple_data", _DKE_PROFILE_GENERIC_NS)
+    if simple_data is None:
+        raise ResponseParseError("simple_data element not found in CMS XML.")
+
+    entries: list[MeterEntry] = []
+    for column in simple_data.findall("p:column", _DKE_PROFILE_GENERIC_NS):
+        col_id = column.attrib.get("id", "")
+        obis = column_obis.get(col_id)
+        if obis is None:
+            continue
+
+        for entry_el in column.findall("p:entry_gateway_signed", _DKE_PROFILE_GENERIC_NS):
+            entry = _parse_signed_entry(entry_el, obis)
+            if entry is not None:
+                entries.append(entry)
+
+    entries.sort(key=lambda e: (e.capture_time, str(e.obis)))
     return entries
 
 
@@ -193,7 +285,10 @@ def parse_meter_profile(content: bytes) -> MeterProfile:
         "ems": "urn:k461-dke-de:e_meter_sensor_setup-1",
     }
 
-    root = ET.fromstring(xml_content)
+    try:
+        root = ET.fromstring(xml_content)
+    except ET.ParseError as err:
+        raise ResponseParseError(f"Invalid embedded XML in meter profile response: {err}") from err
 
     # Scope reads to the meter's device object. A real container also holds a sibling
     # klc:kaf_object (index/routing), and could in principle hold more than one meter

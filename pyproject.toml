@@ -31,8 +31,6 @@ classifiers = [
 dependencies = [
     "httpx>=0.28,<1",
     "beautifulsoup4>=4.12,<5",
-    "cryptography>=46.0.5",
-    "asn1crypto>=1.5.1",
     "obis-parser>=0.0.1",
 ]
 
@@ -61,10 +59,6 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 check_untyped_defs = true
-
-[[tool.mypy.overrides]]
-module = "asn1crypto.*"
-ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

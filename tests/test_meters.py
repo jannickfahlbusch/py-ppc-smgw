@@ -6,6 +6,7 @@ import httpx
 import pytest
 from obis_parser import OBIS
 from pytest_httpx import HTTPXMock
+from test_parsing import MULTI_COLUMN_CMS
 
 from py_ppc_smgw import PPCSMGWClient
 from py_ppc_smgw.types import Meter
@@ -83,3 +84,65 @@ class TestGetMeterReadingIntegration:
         ]
         assert len(post_requests) == 1
         assert b"mid=my_meter_id" in post_requests[0].content
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("mock_login", "mock_logout")
+class TestExportMeterValuesIntegration:
+    async def test_export_meter_values_raw(
+        self,
+        httpx_mock: HTTPXMock,
+        smgw_host: str,
+        username: str,
+        password: str,
+    ) -> None:
+        httpx_mock.add_response(
+            method="POST",
+            url=smgw_host,
+            status_code=200,
+            content=MULTI_COLUMN_CMS,
+        )
+
+        async with PPCSMGWClient(
+            host=smgw_host,
+            username=username,
+            password=password,
+            httpx_client=httpx.AsyncClient(),
+            logger=logging.getLogger("test"),
+        ) as client:
+            raw = await client.export_meter_values_raw(
+                Meter(mid="my_meter_id", name="test.sm"),
+                from_time="2026-05-14 00:00:00",
+                to_time="2026-05-15 00:00:00",
+            )
+            assert isinstance(raw, bytes)
+            assert raw == MULTI_COLUMN_CMS
+
+    async def test_export_meter_values_parsed(
+        self,
+        httpx_mock: HTTPXMock,
+        smgw_host: str,
+        username: str,
+        password: str,
+    ) -> None:
+        httpx_mock.add_response(
+            method="POST",
+            url=smgw_host,
+            status_code=200,
+            content=MULTI_COLUMN_CMS,
+        )
+
+        async with PPCSMGWClient(
+            host=smgw_host,
+            username=username,
+            password=password,
+            httpx_client=httpx.AsyncClient(),
+            logger=logging.getLogger("test"),
+        ) as client:
+            entries = await client.export_meter_values(
+                Meter(mid="my_meter_id", name="test.sm"),
+                from_time="2026-05-14 00:00:00",
+                to_time="2026-05-15 00:00:00",
+            )
+            assert len(entries) == 4
+            assert entries[0].obis == OBIS(1, 0, 1, 8, 0, 255)

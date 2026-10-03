@@ -4,20 +4,20 @@ from datetime import datetime
 from obis_parser import OBIS
 
 
-@dataclass
+@dataclass(slots=True)
 class Reading:
     value: str
     timestamp: datetime
     obis: OBIS
 
 
-@dataclass
+@dataclass(slots=True)
 class Meter:
     mid: str
     name: str
 
 
-@dataclass
+@dataclass(slots=True, frozen=True)
 class MeterProfile:
     """
     Meter setup metadata from the signed exportMeterProfile response.
@@ -32,7 +32,7 @@ class MeterProfile:
     captured_obis: list[OBIS]
 
 
-@dataclass
+@dataclass(slots=True, frozen=True)
 class MeterEntry:
     value: float
     unit: int
@@ -50,20 +50,20 @@ class MeterEntry:
         return raw
 
 
-@dataclass
+@dataclass(slots=True)
 class TariffProfile:
     tid: str
     name: str
 
 
-@dataclass
+@dataclass(slots=True)
 class FirmwareVersion:
     component: str
     version: str
     checksum: str
 
 
-@dataclass
+@dataclass(slots=True)
 class LogEntry:
     record_number: int
     timestamp: datetime
@@ -73,7 +73,7 @@ class LogEntry:
     outcome: str
 
 
-@dataclass
+@dataclass(slots=True)
 class DeviceInfo:
     firmware_versions: list[FirmwareVersion]
     tariff_profiles: list[TariffProfile]

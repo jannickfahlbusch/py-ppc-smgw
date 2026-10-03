@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Callable
+from dataclasses import replace
 from logging import Logger
 from typing import Self
 
@@ -152,18 +153,27 @@ class PPCSMGWClient:
         on demand and can take well over 10s to respond, so a longer timeout is used.
         """
         self.logger.info("getting meter profile")
-        response = await self._request(Action.ExportMeterProfile, {"mid": meter.mid}, timeout=60)
+        response = await self._request(Action.ExportMeterProfile, {"mid": meter.mid}, timeout=120)
         profile = await _run_parser(parse_meter_profile, response.content)
-        profile.mid = meter.mid
+        profile = replace(profile, mid=meter.mid)
         self.logger.debug(f"Got meter profile: {profile}")
         return profile
 
-    async def export_meter_values(self, meter: Meter, from_time: str, to_time: str) -> list[MeterEntry]:
+    async def export_meter_values_raw(
+        self, meter: Meter, from_time: str, to_time: str, timeout: float = 120.0
+    ) -> bytes:
         response = await self._request(
             Action.ExportMeterValues,
             {"mid": meter.mid, "from": from_time, "to": to_time},
+            timeout=timeout,
         )
-        entries = await _run_parser(parse_export_meter_values, response.content)
+        return response.content
+
+    async def export_meter_values(
+        self, meter: Meter, from_time: str, to_time: str, timeout: float = 120.0
+    ) -> list[MeterEntry]:
+        raw = await self.export_meter_values_raw(meter, from_time, to_time, timeout=timeout)
+        entries = await _run_parser(parse_export_meter_values, raw)
         self.logger.info(f"Parsed {len(entries)} meter entries from export")
         return entries
 
