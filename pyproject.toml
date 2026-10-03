@@ -35,10 +35,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage   = "https://github.com/jannickfahlbusch/py-ppc-smgw"
-Repository = "https://github.com/jannickfahlbusch/py-ppc-smgw"
-Issues     = "https://github.com/jannickfahlbusch/py-ppc-smgw/issues"
-Changelog  = "https://github.com/jannickfahlbusch/py-ppc-smgw/blob/main/CHANGELOG.md"
+Homepage   = "https://pkg.jf-projects.de/py-ppc-smgw"
+Repository = "https://pkg.jf-projects.de/py-ppc-smgw"
+Issues     = "https://pkg.jf-projects.de/py-ppc-smgw/issues"
+Changelog  = "https://pkg.jf-projects.de/py-ppc-smgw/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]
 source = "vcs"
